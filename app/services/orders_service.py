@@ -108,9 +108,9 @@ def determine_urgency(order: Order) -> tuple[str | None, str | None]:
             # overdue
             return "overdue", f"Дедлайн просрочен на {abs(days_to)}д"
         if days_to == 0:
-            return "due_soon", "Дедлайн сегодня"
+            return "due_soon", "дедлайн сегодня"
         if days_to == 1:
-            return "due_soon", "Дедлайн завтра"
+            return "due_soon", "дедлайн завтра"
 
     # Stale-based urgency (only if not picked)
     col = determine_column(order)

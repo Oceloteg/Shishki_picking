@@ -85,20 +85,30 @@ def _upsert_onec_order(db: Session, o: OneCOrder) -> int:
     db.flush()  # to get existing.id for FK
 
     # Upsert lines
-    _upsert_onec_lines(db, existing, o.lines)
+    _upsert_onec_lines(db, existing, o.lines, now)
 
     return 1
 
 
-def _upsert_onec_lines(db: Session, order: Order, lines: list[Any]) -> None:
+def _upsert_onec_lines(db: Session, order: Order, lines: list[Any], now: datetime) -> None:
     # Build incoming keys
     incoming: dict[str, Any] = {}
     for idx, l in enumerate(lines):
         line_key = l.onec_line_id or f"{l.item_id}:{idx}"
-        incoming[line_key] = (idx, l)
+        sort_index = idx
+        if l.onec_line_id is not None:
+            try:
+                sort_index = int(str(l.onec_line_id))
+            except Exception:
+                sort_index = idx
+        incoming[line_key] = (sort_index, l)
 
     existing_lines = db.execute(select(OrderLine).where(OrderLine.order_id == order.id)).scalars().all()
     existing_by_key = {l.line_key: l for l in existing_lines}
+
+    baseline_mode = order.baseline_captured_at is None
+    if baseline_mode:
+        order.baseline_captured_at = now
 
     # Upsert / update
     for line_key, (_, l) in incoming.items():
@@ -107,6 +117,7 @@ def _upsert_onec_lines(db: Session, order: Order, lines: list[Any]) -> None:
         if row is None:
             row = OrderLine(order_id=order.id, line_key=line_key)
             row.qty_collected = 0.0
+            row.is_removed = False
             db.add(row)
             created_now = True
 
@@ -115,6 +126,21 @@ def _upsert_onec_lines(db: Session, order: Order, lines: list[Any]) -> None:
         row.item_name = str(l.item_name)
         row.unit = l.unit
         row.qty_ordered = float(l.qty_ordered or 0.0)
+        row.sort_index = incoming[line_key][0]
+        row.last_seen_at = now
+
+        if created_now:
+            if baseline_mode:
+                row.baseline_qty_ordered = float(l.qty_ordered or 0.0)
+                row.is_added = False
+            else:
+                row.baseline_qty_ordered = 0.0
+                row.is_added = True
+        elif baseline_mode and row.baseline_qty_ordered is None:
+            row.baseline_qty_ordered = float(l.qty_ordered or 0.0)
+
+        if row.is_removed:
+            row.is_removed = False
 
         # If 1C already has picking progress enabled, import it only for brand-new lines (best effort).
         if created_now:
@@ -131,11 +157,12 @@ def _upsert_onec_lines(db: Session, order: Order, lines: list[Any]) -> None:
         if row.qty_collected > row.qty_ordered + EPS:
             row.qty_collected = row.qty_ordered
 
-    # Remove lines that disappeared from 1C (rare; but keep DB consistent)
+    # Remove lines that disappeared from 1C: keep row but mark as removed.
     incoming_keys = set(incoming.keys())
     for row in existing_lines:
         if row.line_key not in incoming_keys:
-            db.delete(row)
+            row.is_removed = True
+            row.last_seen_at = now
 
 
 def enqueue_set_status(
@@ -230,9 +257,10 @@ async def process_sync_queue(db: Session, limit: int = 25) -> dict[str, Any]:
             except Exception as e:
                 row.attempts += 1
                 row.last_error = str(e)
-                # Exponential-ish backoff: 2^attempts minutes, capped
-                backoff_minutes = min(60, 2 ** min(row.attempts, 6))
-                row.next_attempt_at = now + timedelta(minutes=backoff_minutes)
+                # Backoff in seconds: 2s → 5s → 15s → 30s → 60s → ...
+                backoff_steps = [2, 5, 15, 30, 60, 120, 300]
+                idx = min(max(row.attempts - 1, 0), len(backoff_steps) - 1)
+                row.next_attempt_at = now + timedelta(seconds=backoff_steps[idx])
 
                 # If too many attempts, mark as failed (kept for inspection)
                 if row.attempts >= 10:

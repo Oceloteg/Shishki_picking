@@ -22,10 +22,6 @@
   <div id="appView" class="view hidden">
     <header class="topbar">
       <div class="topbar-left">
-        <div class="segmented">
-          <button id="sortCreated" class="segmented-btn segmented-btn--active">По созданию</button>
-          <button id="sortShip" class="segmented-btn">По дедлайну</button>
-        </div>
       </div>
       <div class="topbar-right">
         <button id="refreshButton" class="btn btn-ghost">Обновить</button>
@@ -45,6 +41,9 @@
 
     <div id="orderCardInfo" class="order-card-info"></div>
     <div id="orderComment" class="order-comment hidden"></div>
+    <div class="order-actions">
+      <button id="fillAllButton" class="btn btn-primary">Заполнить всё</button>
+    </div>
 
     <div id="orderLines" class="order-lines"></div>
 

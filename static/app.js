@@ -29,6 +29,7 @@ const backButton = document.getElementById('backButton');
 const orderTopInfo = document.getElementById('orderTopInfo');
 const orderCardInfo = document.getElementById('orderCardInfo');
 const orderComment = document.getElementById('orderComment');
+const fillAllButton = document.getElementById('fillAllButton');
 const orderLinesEl = document.getElementById('orderLines');
 const completeOverlay = document.getElementById('completeOverlay');
 
@@ -79,15 +80,17 @@ function inferStep(qtyOrdered) {
   // Integer-like => step 1
   if (Math.abs(q - Math.round(q)) < 1e-9) return 1;
 
-  const s = String(q);
+  let s = String(q);
   if (s.includes('e') || s.includes('E')) {
-    const exp = parseInt(s.split(/e/i)[1], 10);
-    if (Number.isFinite(exp) && exp < 0) return Math.pow(10, exp);
-    return 1;
+    s = q.toFixed(10);
   }
   if (!s.includes('.')) return 1;
-  const decimals = s.split('.')[1].length;
-  return Math.pow(10, -decimals);
+  const frac = s.split('.')[1].replace(/0+$/, '');
+  if (!frac) return 1;
+  let idx = 0;
+  while (idx < frac.length && frac[idx] === '0') idx += 1;
+  if (idx >= frac.length) return 1;
+  return Math.pow(10, -(idx + 1));
 }
 
 function clampAndRound(value, max, step) {
@@ -167,8 +170,8 @@ async function loadOrderDetail(orderId) {
   renderOrderDetail();
 }
 
-async function patchLine(lineId, qty) {
-  const res = await apiFetch(`/api/lines/${lineId}`, {
+async function patchLine(orderId, lineId, qty) {
+  const res = await apiFetch(`/api/orders/${orderId}/lines/${lineId}`, {
     method: 'PATCH',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ qty_collected: qty }),
@@ -218,6 +221,27 @@ async function patchLine(lineId, qty) {
   }
 
   return data;
+}
+
+async function fillAllLines() {
+  if (!state.orderDetail) return;
+  const orderId = state.orderDetail.order.id;
+  const lines = state.orderDetail.lines || [];
+  fillAllButton.disabled = true;
+  fillAllButton.textContent = 'Заполняю...';
+  try {
+    for (const line of lines) {
+      if (line.is_removed) continue;
+      const ordered = Number(line.qty_ordered || 0);
+      const collected = Number(line.qty_collected || 0);
+      if (ordered <= EPS) continue;
+      if (collected >= ordered - 1e-6) continue;
+      await patchLine(orderId, line.id, ordered);
+    }
+  } finally {
+    fillAllButton.disabled = false;
+    fillAllButton.textContent = 'Заполнить всё';
+  }
 }
 
 // ==== polling ====
@@ -402,7 +426,21 @@ async function openOrder(orderId) {
   stopPolling();
 
   // Mark as "picking" (async) – does not block the UI.
-  apiFetch(`/api/orders/${orderId}/open`, { method: 'POST' }).catch(() => {});
+  try {
+    const res = await apiFetch(`/api/orders/${orderId}/open`, { method: 'POST' });
+    if (res.ok) {
+      const data = await res.json();
+      if (data && data.order) {
+        const wIdx = state.orders.findIndex((w) => w.order && w.order.id === data.order.id);
+        if (wIdx >= 0) {
+          state.orders[wIdx].order = data.order;
+          renderBoard();
+        }
+      }
+    }
+  } catch (_) {
+    // ignore
+  }
 
   await loadOrderDetail(orderId);
 
@@ -418,6 +456,8 @@ function closeOrderView() {
   orderView.setAttribute('aria-hidden', 'true');
   show(appView);
   hideComplete();
+  fillAllButton.disabled = false;
+  fillAllButton.textContent = 'Заполнить всё';
   startPolling();
 }
 
@@ -467,6 +507,8 @@ function renderOrderDetail() {
   const lines = detail.lines || [];
 
   updateOrderDetailHeader(order);
+  fillAllButton.disabled = false;
+  fillAllButton.textContent = 'Заполнить всё';
 
   // Render lines:
   // 1) incomplete (not removed)
@@ -488,6 +530,11 @@ function renderOrderDetail() {
 
   orderLinesEl.innerHTML = '';
 
+  const bySort = (a, b) => Number(a.sort_index || 0) - Number(b.sort_index || 0);
+  incomplete.sort(bySort);
+  complete.sort(bySort);
+  removed.sort(bySort);
+
   for (const l of [...incomplete, ...complete, ...removed]) {
     orderLinesEl.appendChild(renderLine(l));
   }
@@ -501,7 +548,9 @@ function renderLine(line) {
   const el = document.createElement('div');
   el.className = 'line';
   el.dataset.lineId = line.id;
+  el.dataset.sortIndex = String(line.sort_index || 0);
   el.dataset.done = done ? '1' : '0';
+  el.dataset.group = line.is_removed ? 'removed' : done ? 'complete' : 'incomplete';
 
   const delta = computeDelta(line);
   const qtyChanged = delta !== null;
@@ -563,7 +612,7 @@ function renderLine(line) {
       try {
         const cur = Number(getLineQtyFromState(line.id));
         const next = clampAndRound(cur - step, line.qty_ordered, step);
-        await patchLine(line.id, next);
+        await patchLine(state.activeOrderId, line.id, next);
       } catch (e) {
         // ignore
       }
@@ -574,7 +623,7 @@ function renderLine(line) {
       try {
         const cur = Number(getLineQtyFromState(line.id));
         const next = clampAndRound(cur + step, line.qty_ordered, step);
-        await patchLine(line.id, next);
+        await patchLine(state.activeOrderId, line.id, next);
       } catch (e) {
         // ignore
       }
@@ -624,6 +673,7 @@ function updateLineUI(line) {
   const wasDone = el.dataset.done === '1';
   const nowDone = isLineDone(line);
   el.dataset.done = nowDone ? '1' : '0';
+  el.dataset.sortIndex = String(line.sort_index || 0);
 
   // Update highlight classes
   el.classList.toggle('line--removed', !!line.is_removed);
@@ -644,22 +694,68 @@ function updateLineUI(line) {
     meta.innerHTML = `Нужно: ${needHtml}`;
   }
 
-  // Reorder only on first transition to DONE
+  const prevGroup = el.dataset.group || 'incomplete';
+  const nextGroup = line.is_removed ? 'removed' : nowDone ? 'complete' : 'incomplete';
+  el.dataset.group = nextGroup;
+
   if (!wasDone && nowDone) {
-    moveLineToBottom(el);
+    moveLineToCompleteEnd(el);
+  } else if (wasDone && !nowDone) {
+    moveLineToIncompletePosition(el);
+  } else if (prevGroup !== nextGroup) {
+    moveLineToGroupEnd(el, nextGroup);
   }
 }
 
-function moveLineToBottom(lineEl) {
+function moveLineToGroupEnd(lineEl, group) {
   if (!orderLinesEl) return;
 
-  // Insert before the first removed line, if any, else append to end.
-  const removedEls = orderLinesEl.querySelectorAll('.line--removed');
-  if (removedEls.length > 0) {
-    orderLinesEl.insertBefore(lineEl, removedEls[0]);
+  if (group === 'removed') {
+    orderLinesEl.appendChild(lineEl);
+    return;
+  }
+  if (group === 'complete') {
+    moveLineToCompleteEnd(lineEl);
+    return;
+  }
+  moveLineToIncompletePosition(lineEl);
+}
+
+function moveLineToCompleteEnd(lineEl) {
+  if (!orderLinesEl) return;
+  const removedEl = orderLinesEl.querySelector('.line[data-group="removed"]');
+  if (removedEl) {
+    orderLinesEl.insertBefore(lineEl, removedEl);
   } else {
     orderLinesEl.appendChild(lineEl);
   }
+}
+
+function moveLineToIncompletePosition(lineEl) {
+  if (!orderLinesEl) return;
+  const sortIndex = Number(lineEl.dataset.sortIndex || 0);
+  const incompletes = Array.from(orderLinesEl.querySelectorAll('.line[data-group="incomplete"]'))
+    .filter((el) => el !== lineEl);
+
+  for (const el of incompletes) {
+    const otherIdx = Number(el.dataset.sortIndex || 0);
+    if (otherIdx > sortIndex) {
+      orderLinesEl.insertBefore(lineEl, el);
+      return;
+    }
+  }
+
+  const firstComplete = orderLinesEl.querySelector('.line[data-group="complete"]');
+  if (firstComplete) {
+    orderLinesEl.insertBefore(lineEl, firstComplete);
+    return;
+  }
+  const firstRemoved = orderLinesEl.querySelector('.line[data-group="removed"]');
+  if (firstRemoved) {
+    orderLinesEl.insertBefore(lineEl, firstRemoved);
+    return;
+  }
+  orderLinesEl.appendChild(lineEl);
 }
 
 function escapeHtml(str) {
@@ -741,6 +837,10 @@ refreshButton.addEventListener('click', async () => {
   } finally {
     refreshButton.disabled = false;
   }
+});
+
+fillAllButton.addEventListener('click', async () => {
+  await fillAllLines();
 });
 
 backButton.addEventListener('click', () => {

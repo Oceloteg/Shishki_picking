@@ -279,6 +279,11 @@ body{
 .order-card-info{
   padding: 10px;
 }
+.order-actions{
+  padding: 0 10px 10px 10px;
+  display: flex;
+  gap: 8px;
+}
 .order-comment{
   margin: 0 10px 10px 10px;
   padding: 10px;
@@ -316,6 +321,16 @@ body{
 .line--added{
   border-color: #fdba74;
   background: #fffbeb;
+}
+.line--qty-changed .qty-ordered{
+  color: #b45309;
+  font-weight: 800;
+}
+.line-delta{
+  margin-left: 6px;
+  font-size: 12px;
+  color: #b45309;
+  font-weight: 700;
 }
 
 .qty--changed{

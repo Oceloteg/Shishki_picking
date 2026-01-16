@@ -14,7 +14,7 @@ from sqlalchemy.orm import Session, selectinload
 from app.auth import create_token, get_current_user
 from app.config import settings
 from app.db import SessionLocal, engine, get_db
-from app.models import Base, Order, OrderLine
+from app.models import Base, Order, OrderLine, SyncQueue
 from app.schemas import (
     ConfigOut,
     LoginRequest,
@@ -24,7 +24,7 @@ from app.schemas import (
     PatchLineResponse,
 )
 from app.migrations import ensure_schema
-from app.services.orders_service import calc_progress, to_order_out
+from app.services.orders_service import calc_progress, sort_orders_for_board, to_order_out
 from app.services.sync_service import (
     enqueue_line_progress,
     enqueue_set_status,
@@ -174,12 +174,12 @@ def list_orders(
             select(Order)
             .where(Order.is_active == True)
             .options(selectinload(Order.lines))
-            .order_by(Order.id.desc())
             .limit(limit)
         )
         .scalars()
         .all()
     )
+    orders = sort_orders_for_board(orders)
 
     if settings.app_debug:
         logger.info("/api/orders: active_orders=%s", len(orders))
@@ -233,7 +233,7 @@ def open_order(
         except Exception:
             logger.exception("enqueue_set_status failed (open_order) order_id=%s onec_id=%s", order_id, order.onec_id)
 
-    return {"ok": True}
+    return {"ok": True, "order": to_order_out(order).model_dump()}
 
 
 @app.patch("/api/orders/{order_id}/lines/{line_id}", response_model=PatchLineResponse)
@@ -270,8 +270,8 @@ def patch_line(
             logger.exception("enqueue_set_status failed (patch_line->ensure_picking) order_id=%s line_id=%s onec_id=%s", order_id, line_id, order.onec_id)
 
     # Was order complete before?
-    total_before, done_before, _ = calc_progress(order)
-    was_complete = total_before > 0 and done_before == total_before
+    _, _, total_qty_before, collected_qty_before, _ = calc_progress(order)
+    was_complete = total_qty_before > 0 and collected_qty_before >= total_qty_before
 
     # Update with clamp
     new_qty = float(body.qty_collected)
@@ -288,8 +288,8 @@ def patch_line(
     # Re-load order lines and re-check completion
     order = db.execute(select(Order).where(Order.id == order_id)).scalar_one()
     _ = order.lines
-    total_after, done_after, _ = calc_progress(order)
-    is_complete = total_after > 0 and done_after == total_after
+    _, _, total_qty_after, collected_qty_after, _ = calc_progress(order)
+    is_complete = total_qty_after > 0 and collected_qty_after >= total_qty_after
 
     completed_now = (not was_complete) and is_complete
     if completed_now:
@@ -312,23 +312,6 @@ def patch_line(
         order_completed_now=completed_now,
     )
 
-
-@app.patch("/api/lines/{line_id}", response_model=PatchLineResponse)
-def patch_line_by_id(
-    line_id: int,
-    body: PatchLineRequest,
-    _: str = Depends(get_current_user),
-    db: Session = Depends(get_db),
-):
-    """Совместимость с более старыми версиями фронта.
-
-    Ранее некоторые версии UI отправляли PATCH на /api/lines/{id}.
-    Основной эндпоинт: /api/orders/{order_id}/lines/{line_id}.
-    """
-    line = db.execute(select(OrderLine).where(OrderLine.id == line_id)).scalar_one_or_none()
-    if not line:
-        raise HTTPException(status_code=404, detail="Line not found")
-    return patch_line(line.order_id, line_id, body, _, db)
 
 @app.post("/api/sync-now")
 async def sync_now(_: str = Depends(get_current_user)):
@@ -402,6 +385,31 @@ def debug_db(_: str = Depends(get_current_user), db: Session = Depends(get_db)):
                 "ship_deadline": o.ship_deadline.isoformat() if o.ship_deadline else None,
             }
             for o in sample_orders
+        ],
+    }
+
+
+@app.get("/api/debug/outbox")
+def debug_outbox(_: str = Depends(get_current_user), db: Session = Depends(get_db)):
+    rows = (
+        db.execute(select(SyncQueue).order_by(SyncQueue.id.desc()).limit(100))
+        .scalars()
+        .all()
+    )
+    return {
+        "count": len(rows),
+        "items": [
+            {
+                "id": r.id,
+                "action_type": r.action_type,
+                "status": r.status,
+                "attempts": r.attempts,
+                "last_error": r.last_error,
+                "next_attempt_at": r.next_attempt_at.isoformat() if r.next_attempt_at else None,
+                "created_at": r.created_at.isoformat() if r.created_at else None,
+                "updated_at": r.updated_at.isoformat() if r.updated_at else None,
+            }
+            for r in rows
         ],
     }
 

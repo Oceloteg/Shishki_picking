@@ -488,6 +488,10 @@ class ODataOneCClient(OneCClientBase):
 
             active_cf = {s.casefold() for s in settings.active_statuses_list() if str(s).strip()}
 
+            if guess.status_field and guess.status_field.casefold() == "статуссборки":
+                # Never treat picking subsystem status as order state.
+                guess.status_field = None
+
             # Build candidate list: configured -> common name -> any status-like fields
             candidates: list[str] = []
             if guess.status_field:
@@ -523,6 +527,8 @@ class ODataOneCClient(OneCClientBase):
 
                 if "сборк" in field.lower():
                     score -= 30
+                if field.casefold() == "статуссборки":
+                    score -= 500
                 return score
 
             # Pick the best candidate that exists in the payload.
@@ -536,6 +542,8 @@ class ODataOneCClient(OneCClientBase):
                         best_field = c
 
             if best_field:
+                if best_field == "СтатусСборки" and "СостояниеЗаказа" in keys:
+                    best_field = "СостояниеЗаказа"
                 if settings.app_debug and settings.onec_order_status_key_field and best_field != settings.onec_order_status_key_field:
                     # This is a common misconfiguration when picking subsystem fields appear.
                     print(
@@ -714,25 +722,6 @@ class ODataOneCClient(OneCClientBase):
                 select_fields.append(opt)
         base_params["$select"] = ",".join(select_fields)
 
-        # Optional: try server-side status filter first (can reduce data), but fall back
-        # because some 1C OData publications do not filter correctly on reference-like string fields.
-        status_filter_clause: str | None = None
-        if status_field:
-            if status_is_keylike and active_status_keys:
-                if status_is_key:
-                    ors = " or ".join(
-                        [f"{status_field} eq {self._guid_literal(k)}" for k in sorted(active_status_keys)]
-                    )
-                else:
-                    # Field is Edm.String storing GUID; compare as string literal.
-                    ors = " or ".join(
-                        [f"{status_field} eq '{self._escape_str(k)}'" for k in sorted(active_status_keys)]
-                    )
-                status_filter_clause = f"({ors})"
-            elif not status_is_keylike and active_statuses:
-                ors = " or ".join([f"{status_field} eq '{self._escape_str(s)}'" for s in active_statuses])
-                status_filter_clause = f"({ors})"
-
         def build_variants(p: dict[str, Any]) -> list[dict[str, Any]]:
             variants: list[dict[str, Any]] = []
             seen: set[str] = set()
@@ -771,33 +760,11 @@ class ODataOneCClient(OneCClientBase):
         raw_orders: list[dict[str, Any]] = []
         used_params: dict[str, Any] | None = None
 
-        # 1) Try with status filter if we can build it
-        if status_filter_clause:
-            p = dict(base_params)
-            p["$filter"] = f"{base_filter} and {status_filter_clause}"
-            rows, up, err = await run_variants(p)
-            used_params = up
-
-            if err is None and rows:
-                raw_orders = rows
-            else:
-                # If filter returns 0 (or errors), fall back to base filter
-                rows2, up2, err2 = await run_variants(base_params)
-                used_params = up2 or used_params
-                if err2 is not None:
-                    # Prefer real error if both fail
-                    raise err2
-                if rows2 and not rows:
-                    self._log(
-                        "Status filter returned 0 orders; falling back to base filter and client-side status filtering."
-                    )
-                raw_orders = rows2
-        else:
-            rows, up, err = await run_variants(base_params)
-            used_params = up
-            if err is not None:
-                raise err
-            raw_orders = rows
+        rows, up, err = await run_variants(base_params)
+        used_params = up
+        if err is not None:
+            raise err
+        raw_orders = rows
 
         if settings.onec_http_debug and used_params:
             self._log(f"Orders query params used: {used_params}")

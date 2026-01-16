@@ -300,47 +300,9 @@ async def main() -> int:
                 flag = "ACTIVE" if (st_desc and st_desc.casefold() in active_cf) else ""
                 _p(f" - №{num} | {dt} | status={st_show} | key={ref} {flag}")
 
-            # Also test status-filter semantics directly (string vs guid literal)
-            if status_field and status_key_by_desc_cf:
-                # pick first active status that has a key
-                pick_name = None
-                pick_key = None
-                for name in settings.active_statuses_list():
-                    k = status_key_by_desc_cf.get(str(name).casefold())
-                    if k:
-                        pick_name = name
-                        pick_key = k
-                        break
-
-                if pick_key:
-                    _p("\n--- Проверка: фильтр по статусу в OData (как в приложении) ---")
-                    # 1) string literal compare (field stores GUID in string)
-                    try:
-                        p1 = {
-                            "$format": "json",
-                            "$top": "10",
-                            "$select": "Ref_Key,Number," + status_field,
-                            "$filter": f"Posted eq false and DeletionMark eq false and ({status_field} eq '{pick_key}')",
-                        }
-                        d1 = await _get_json(client, settings.onec_entity_orders, params=p1)
-                        c1 = len(_extract_items(d1))
-                        _p(f"status '{pick_name}' as string literal -> {c1} заказ(ов)")
-                    except Exception as e:
-                        _print_exc("WARN: статус-фильтр (string) не сработал: ", e)
-
-                    # 2) guid literal compare (может работать в некоторых публикациях)
-                    try:
-                        p2 = {
-                            "$format": "json",
-                            "$top": "10",
-                            "$select": "Ref_Key,Number," + status_field,
-                            "$filter": f"Posted eq false and DeletionMark eq false and ({status_field} eq {_guid_literal(pick_key)})",
-                        }
-                        d2 = await _get_json(client, settings.onec_entity_orders, params=p2)
-                        c2 = len(_extract_items(d2))
-                        _p(f"status '{pick_name}' as guid literal -> {c2} заказ(ов)")
-                    except Exception as e:
-                        _print_exc("WARN: статус-фильтр (guid) не сработал: ", e)
+            if status_field:
+                _p("\n--- Проверка: фильтр по статусу в OData ---")
+                _p("ОЖИДАЕМО НЕ РАБОТАЕТ: фильтрацию статуса выполняем только на клиенте.")
 
         except Exception as e:
             _print_exc("WARN: не удалось сделать базовую выборку заказов: ", e)

@@ -77,14 +77,10 @@
 - `APP_DEBUG=true`
 - `APP_LOG_LEVEL=DEBUG`
 ## 7) Совместимость и частые регрессии
-- **PATCH строк**: встречались две версии фронта:
-  - основной: `PATCH /api/orders/{order_id}/lines/{line_id}`
-  - совместимость: `PATCH /api/lines/{line_id}`  
-  Чтобы не ловить `404 Not Found`, бэкенд держит алиас на второй маршрут.
+- **PATCH строк**: единственный рабочий маршрут — `PATCH /api/orders/{order_id}/lines/{line_id}`.
 - **enqueue_set_status** должен быть tolerant к доп. аргументам (например `pick_status_code`), иначе
   `POST /api/orders/{id}/open` может падать `500` и заказ не будет переходить в колонку «В сборке».
 - **favicon**: для стабильного отображения иконки:
   - отдаём `/favicon.ico` с `media_type="image/x-icon"`
   - в `static/index.html` добавляем `<link rel="icon" href="/favicon.ico" ...>`
   - учитываем агрессивный кэш фавикона в браузерах (иногда нужен hard refresh).
-
