@@ -204,6 +204,15 @@ def enqueue_line_progress(
     db.commit()
 
 
+def enqueue_set_comment(db: Session, onec_order_id: str, comment: str) -> None:
+    payload = {
+        "onec_order_id": onec_order_id,
+        "comment": comment,
+    }
+    db.add(SyncQueue(action_type="set_comment", payload_json=json.dumps(payload, ensure_ascii=False)))
+    db.commit()
+
+
 async def process_sync_queue(db: Session, limit: int = 25) -> dict[str, Any]:
     onec = build_onec_client()
     try:
@@ -247,6 +256,11 @@ async def process_sync_queue(db: Session, limit: int = 25) -> dict[str, Any]:
                         payload.get("onec_line_id"),
                         payload.get("item_id", ""),
                         float(payload.get("qty_collected", 0.0)),
+                    )
+                elif row.action_type == "set_comment":
+                    await onec.set_order_comment(
+                        payload.get("onec_order_id", ""),
+                        str(payload.get("comment", "")),
                     )
                 else:
                     raise RuntimeError(f"Unknown action_type: {row.action_type}")

@@ -29,7 +29,7 @@ const backButton = document.getElementById('backButton');
 const orderTopInfo = document.getElementById('orderTopInfo');
 const orderCardInfo = document.getElementById('orderCardInfo');
 const orderComment = document.getElementById('orderComment');
-const fillAllButton = document.getElementById('fillAllButton');
+const completeButton = document.getElementById('completeButton');
 const orderLinesEl = document.getElementById('orderLines');
 const completeOverlay = document.getElementById('completeOverlay');
 
@@ -219,24 +219,29 @@ async function patchLine(orderId, lineId, qty) {
   return data;
 }
 
-async function fillAllLines() {
+async function completeOrder() {
   if (!state.orderDetail) return;
   const orderId = state.orderDetail.order.id;
-  const lines = state.orderDetail.lines || [];
-  fillAllButton.disabled = true;
-  fillAllButton.textContent = 'Заполняю...';
+  completeButton.disabled = true;
+  completeButton.textContent = 'Завершаю...';
   try {
-    for (const line of lines) {
-      if (line.is_removed) continue;
-      const ordered = Number(line.qty_ordered || 0);
-      const collected = Number(line.qty_collected || 0);
-      if (ordered <= EPS) continue;
-      if (collected >= ordered - 1e-6) continue;
-      await patchLine(orderId, line.id, ordered);
+    const res = await apiFetch(`/api/orders/${orderId}/complete`, { method: 'POST' });
+    if (!res.ok) throw new Error(await res.text());
+    const data = await res.json();
+    if (data && data.order) {
+      state.orderDetail.order = data.order;
+      updateOrderDetailHeader(data.order);
+      const wIdx = state.orders.findIndex((w) => w.order && w.order.id === data.order.id);
+      if (wIdx >= 0) {
+        state.orders[wIdx].order = data.order;
+      }
+      renderBoard();
     }
+  } catch (_) {
+    // ignore
   } finally {
-    fillAllButton.disabled = false;
-    fillAllButton.textContent = 'Заполнить всё';
+    completeButton.disabled = false;
+    completeButton.textContent = 'Завершить сборку';
   }
 }
 
@@ -445,8 +450,8 @@ function closeOrderView() {
   orderView.setAttribute('aria-hidden', 'true');
   show(appView);
   hideComplete();
-  fillAllButton.disabled = false;
-  fillAllButton.textContent = 'Заполнить всё';
+  completeButton.disabled = false;
+  completeButton.textContent = 'Завершить сборку';
   startPolling();
 }
 
@@ -496,8 +501,8 @@ function renderOrderDetail() {
   const lines = detail.lines || [];
 
   updateOrderDetailHeader(order);
-  fillAllButton.disabled = false;
-  fillAllButton.textContent = 'Заполнить всё';
+  completeButton.disabled = false;
+  completeButton.textContent = 'Завершить сборку';
 
   // Render lines:
   // 1) incomplete (not removed)
@@ -545,6 +550,7 @@ function renderLine(line) {
   const qtyChanged = delta !== null;
 
   if (line.is_removed) el.classList.add('line--removed');
+  if (done && !line.is_removed) el.classList.add('line--done');
   if (line.is_added && !done && !line.is_removed) el.classList.add('line--added');
   if (qtyChanged && !done && !line.is_removed) el.classList.add('line--qty-changed');
 
@@ -584,8 +590,11 @@ function renderLine(line) {
 
     const step = inferStep(line.qty_ordered);
 
+    const stepper = document.createElement('div');
+    stepper.className = 'line-stepper';
+
     const minus = document.createElement('button');
-    minus.className = 'btn btn-ghost';
+    minus.className = 'btn btn-ghost qty-btn';
     minus.textContent = '−';
 
     const value = document.createElement('div');
@@ -593,8 +602,22 @@ function renderLine(line) {
     value.textContent = fmtQty(line.qty_collected);
 
     const plus = document.createElement('button');
-    plus.className = 'btn btn-ghost';
+    plus.className = 'btn btn-ghost qty-btn';
     plus.textContent = '+';
+
+    const fill = document.createElement('button');
+    fill.className = 'btn btn-primary ctrl-fill line-fill-btn';
+    fill.textContent = 'Заполнить всё';
+
+    fill.addEventListener('click', async (ev) => {
+      ev.stopPropagation();
+      try {
+        const ordered = Number(line.qty_ordered || 0);
+        await patchLine(state.activeOrderId, line.id, ordered);
+      } catch (e) {
+        // ignore
+      }
+    });
 
     minus.addEventListener('click', async (ev) => {
       ev.stopPropagation();
@@ -618,9 +641,12 @@ function renderLine(line) {
       }
     });
 
-    controls.appendChild(minus);
-    controls.appendChild(value);
-    controls.appendChild(plus);
+    stepper.appendChild(minus);
+    stepper.appendChild(value);
+    stepper.appendChild(plus);
+
+    controls.appendChild(stepper);
+    controls.appendChild(fill);
 
     el.appendChild(controls);
   }
@@ -666,6 +692,7 @@ function updateLineUI(line) {
 
   // Update highlight classes
   el.classList.toggle('line--removed', !!line.is_removed);
+  el.classList.toggle('line--done', nowDone && !line.is_removed);
   el.classList.toggle('line--added', !!line.is_added && !nowDone && !line.is_removed);
 
   const delta = computeDelta(line);
@@ -828,8 +855,8 @@ refreshButton.addEventListener('click', async () => {
   }
 });
 
-fillAllButton.addEventListener('click', async () => {
-  await fillAllLines();
+completeButton.addEventListener('click', async () => {
+  await completeOrder();
 });
 
 backButton.addEventListener('click', () => {

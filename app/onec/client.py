@@ -46,6 +46,9 @@ class OneCClientBase:
     async def set_order_status(self, onec_id: str, status: str) -> None:
         raise NotImplementedError
 
+    async def set_order_comment(self, onec_id: str, comment: str) -> None:
+        raise NotImplementedError
+
     async def write_line_progress(
         self, onec_order_id: str, onec_line_id: str | None, item_id: str, qty_collected: float
     ) -> None:
@@ -107,6 +110,10 @@ class MockOneCClient(OneCClientBase):
         return filtered
 
     async def set_order_status(self, onec_id: str, status: str) -> None:
+        # mock: no-op
+        return None
+
+    async def set_order_comment(self, onec_id: str, comment: str) -> None:
         # mock: no-op
         return None
 
@@ -1121,6 +1128,25 @@ class ODataOneCClient(OneCClientBase):
             await self._request_json("PATCH", url, json_body=body, headers=headers, params={"$format": "json"})
         except httpx.HTTPStatusError as e:
             self._log(f"PATCH line progress failed, trying MERGE. err={e}")
+            await self._request_json("MERGE", url, json_body=body, headers=headers, params={"$format": "json"})
+
+    async def set_order_comment(self, onec_id: str, comment: str) -> None:
+        fg = await self._ensure_field_guess()
+        comment_field = fg.comment_field
+        if not comment_field:
+            raise RuntimeError(
+                "Не удалось определить поле комментария заказа в OData. "
+                "Укажите ONEC_ORDER_COMMENT_FIELD в .env."
+            )
+
+        url = f"{settings.onec_entity_orders}({self._guid_literal(onec_id)})"
+        headers = {"If-Match": "*"}
+        body = {comment_field: comment}
+
+        try:
+            await self._request_json("PATCH", url, json_body=body, headers=headers, params={"$format": "json"})
+        except httpx.HTTPStatusError as e:
+            self._log(f"PATCH failed, trying MERGE. err={e}")
             await self._request_json("MERGE", url, json_body=body, headers=headers, params={"$format": "json"})
 
     async def aclose(self) -> None:

@@ -27,6 +27,7 @@ from app.migrations import ensure_schema
 from app.services.orders_service import calc_progress, sort_orders_for_board, to_order_out
 from app.services.sync_service import (
     enqueue_line_progress,
+    enqueue_set_comment,
     enqueue_set_status,
     process_sync_queue,
     sync_loop,
@@ -38,6 +39,12 @@ logger = logging.getLogger("shishki.app")
 
 def _norm(s: str | None) -> str:
     return (s or "").strip().casefold()
+
+def _fmt_qty(value: float | int | None) -> str:
+    n = float(value or 0.0)
+    if abs(n - round(n)) < 1e-9:
+        return str(int(round(n)))
+    return f"{n:.3f}".rstrip("0").rstrip(".")
 
 STATIC_DIR = Path(__file__).resolve().parent.parent / "static"
 
@@ -311,6 +318,57 @@ def patch_line(
         order=to_order_out(order),
         order_completed_now=completed_now,
     )
+
+
+@app.post("/api/orders/{order_id}/complete")
+def complete_order(
+    order_id: int,
+    _: str = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    order = (
+        db.execute(select(Order).where(Order.id == order_id).options(selectinload(Order.lines)))
+        .scalar_one_or_none()
+    )
+    if not order or not order.is_active:
+        raise HTTPException(status_code=404, detail="Order not found")
+
+    missing_lines: list[str] = []
+    for line in order.lines:
+        if line.is_removed:
+            continue
+        ordered = float(line.qty_ordered or 0.0)
+        collected = float(line.qty_collected or 0.0)
+        missing = ordered - collected
+        if missing > 1e-6:
+            unit = f" {line.unit}" if line.unit else ""
+            missing_lines.append(f"{line.item_name} — {_fmt_qty(missing)}{unit}")
+
+    comment_append = ""
+    if missing_lines:
+        comment_append = "Несобранные позиции: " + "; ".join(missing_lines)
+        if order.comment and order.comment.strip():
+            order.comment = f"{order.comment.rstrip()}\n{comment_append}"
+        else:
+            order.comment = comment_append
+
+    if _norm(order.onec_status) != _norm(settings.onec_status_picked):
+        order.onec_status = settings.onec_status_picked
+
+    db.commit()
+
+    if order.onec_id:
+        try:
+            enqueue_set_status(db, order.onec_id, settings.onec_status_picked)
+        except Exception:
+            logger.exception("enqueue_set_status failed (complete_order) order_id=%s onec_id=%s", order_id, order.onec_id)
+        if comment_append:
+            try:
+                enqueue_set_comment(db, order.onec_id, order.comment or comment_append)
+            except Exception:
+                logger.exception("enqueue_set_comment failed (complete_order) order_id=%s onec_id=%s", order_id, order.onec_id)
+
+    return {"ok": True, "order": to_order_out(order).model_dump()}
 
 
 @app.post("/api/sync-now")
