@@ -1,0 +1,29 @@
+{
+  "odata.metadata": "https://msk1.1cfresh.com:443/a/sbm/3799606/odata/standard.odata/$metadata#Catalog_СостоянияЗаказовПокупателей",
+  "value": [
+    {
+      "Ref_Key": "f8a1742a-ed91-11f0-8521-fa163e704db9",
+      "Description": "В работе"
+    },
+    {
+      "Ref_Key": "f89c92b6-ed91-11f0-8521-fa163e704db9",
+      "Description": "Завершен"
+    },
+    {
+      "Ref_Key": "f8a3cf90-ed91-11f0-8521-fa163e704db9",
+      "Description": "На выполнении"
+    },
+    {
+      "Ref_Key": "f8a2b6fa-ed91-11f0-8521-fa163e704db9",
+      "Description": "На сборке"
+    },
+    {
+      "Ref_Key": "2bd87986-f118-11f0-82e9-fa163e704db9",
+      "Description": "Отгружен"
+    },
+    {
+      "Ref_Key": "2bd4af4a-f118-11f0-82e9-fa163e704db9",
+      "Description": "Собран"
+    }
+  ]
+}

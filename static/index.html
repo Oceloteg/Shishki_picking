@@ -1,0 +1,58 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no" />
+  <meta name="apple-mobile-web-app-capable" content="yes" />
+  <title>Сборка заказов</title>
+  <link rel="icon" href="/favicon.ico" type="image/x-icon" />
+  <link rel="stylesheet" href="/static/styles.css" />
+</head>
+<body>
+  <!-- Login -->
+  <div id="loginView" class="view">
+    <div class="login-card">
+      <input id="passwordInput" class="input" type="password" placeholder="Пароль" autocomplete="current-password" />
+      <button id="loginButton" class="btn btn-primary">Войти</button>
+      <div id="loginError" class="error hidden"></div>
+    </div>
+  </div>
+
+  <!-- Board -->
+  <div id="appView" class="view hidden">
+    <header class="topbar">
+      <div class="topbar-left">
+        <div class="segmented">
+          <button id="sortCreated" class="segmented-btn segmented-btn--active">По созданию</button>
+          <button id="sortShip" class="segmented-btn">По дедлайну</button>
+        </div>
+      </div>
+      <div class="topbar-right">
+        <button id="refreshButton" class="btn btn-ghost">Обновить</button>
+        <button id="logoutButton" class="btn btn-ghost btn-danger">Выйти</button>
+      </div>
+    </header>
+
+    <main id="board" class="board"></main>
+  </div>
+
+  <!-- Order full-screen -->
+  <div id="orderView" class="order-view hidden" aria-hidden="true">
+    <div class="order-topbar">
+      <button id="backButton" class="btn btn-ghost">← Назад</button>
+      <div id="orderTopInfo" class="order-top-info"></div>
+    </div>
+
+    <div id="orderCardInfo" class="order-card-info"></div>
+    <div id="orderComment" class="order-comment hidden"></div>
+
+    <div id="orderLines" class="order-lines"></div>
+
+    <div id="completeOverlay" class="complete-overlay hidden" aria-hidden="true">
+      <div class="complete-check">✓</div>
+    </div>
+  </div>
+
+  <script src="/static/app.js"></script>
+</body>
+</html>

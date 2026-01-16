@@ -1,0 +1,82 @@
+{
+  "orders": [
+    {
+      "onec_id": "11111111-1111-1111-1111-111111111111",
+      "number": "000000001",
+      "customer_name": "ООО Ромашка",
+      "created_at": "2026-01-10T09:15:00Z",
+      "ship_deadline": "2026-01-14T18:00:00Z",
+      "comment": "Доставить до 18:00. Позвонить перед отправкой.",
+      "status": "В Работе",
+      "is_posted": false,
+      "lines": [
+        {
+          "item_id": "A1",
+          "item_name": "Шишки сосновые",
+          "unit": "шт",
+          "qty_ordered": 10
+        },
+        {
+          "item_id": "A2",
+          "item_name": "Коробка 30x30",
+          "unit": "шт",
+          "qty_ordered": 2
+        },
+        {
+          "item_id": "A3",
+          "item_name": "Скотч прозрачный",
+          "unit": "шт",
+          "qty_ordered": 1
+        }
+      ]
+    },
+    {
+      "onec_id": "22222222-2222-2222-2222-222222222222",
+      "number": "000000002",
+      "customer_name": "ИП Иванов",
+      "created_at": "2026-01-09T14:40:00Z",
+      "ship_deadline": "2026-01-13T12:00:00Z",
+      "comment": "Самовывоз. Наклейку 'Хрупкое'.",
+      "status": "На сборке",
+      "is_posted": false,
+      "lines": [
+        {
+          "item_id": "B1",
+          "item_name": "Елочные игрушки набор",
+          "unit": "шт",
+          "qty_ordered": 3
+        },
+        {
+          "item_id": "B2",
+          "item_name": "Лента декоративная",
+          "unit": "шт",
+          "qty_ordered": 5
+        }
+      ]
+    },
+    {
+      "onec_id": "33333333-3333-3333-3333-333333333333",
+      "number": "000000003",
+      "customer_name": "ООО ЛесТорг",
+      "created_at": "2026-01-05T08:05:00Z",
+      "ship_deadline": "2026-01-12T16:00:00Z",
+      "comment": "Срочно. Упаковка в 2 слоя.",
+      "status": "Собран",
+      "is_posted": false,
+      "lines": [
+        {
+          "item_id": "C1",
+          "item_name": "Пакет крафтовый",
+          "unit": "шт",
+          "qty_ordered": 20
+        },
+        {
+          "item_id": "C2",
+          "item_name": "Верёвка джутовая",
+          "unit": "м",
+          "qty_ordered": 15
+        }
+      ]
+    }
+  ]
+}
