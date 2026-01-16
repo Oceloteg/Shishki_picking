@@ -76,6 +76,8 @@
 Для логов:
 - `APP_DEBUG=true`
 - `APP_LOG_LEVEL=DEBUG`
+
+Пароль формы задаётся через `APP_PASSWORD` (в примере — `shishki-pick-2025`), а параметры подключения к 1С держим только в секретах окружения и не коммитим в репозиторий.
 ## 7) Совместимость и частые регрессии
 - **PATCH строк**: единственный рабочий маршрут — `PATCH /api/orders/{order_id}/lines/{line_id}`.
 - **enqueue_set_status** должен быть tolerant к доп. аргументам (например `pick_status_code`), иначе
@@ -84,3 +86,5 @@
   - отдаём `/favicon.ico` с `media_type="image/x-icon"`
   - в `static/index.html` добавляем `<link rel="icon" href="/favicon.ico" ...>`
   - учитываем агрессивный кэш фавикона в браузерах (иногда нужен hard refresh).
+- **Колонки в UI**: фронт использует `order.column`, рассчитанный на backend, а поля `/api/config` называются
+  `status_picking/status_picked` без префикса `onec_` (переименования на фронте не допускаются).

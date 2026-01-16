@@ -41,10 +41,6 @@ function hide(el) {
   el.classList.add('hidden');
 }
 
-function norm(s) {
-  return String(s || '').trim().toLowerCase();
-}
-
 function fmtDateOnly(isoString) {
   if (!isoString) return '';
   const d = new Date(isoString);
@@ -267,15 +263,8 @@ function stopPolling() {
 
 // ==== board ====
 function getOrderColumn(order) {
-  const cfg = state.config || {};
-  const s = norm(order.onec_status);
-
-  if (s && norm(cfg.onec_status_picked) && s === norm(cfg.onec_status_picked)) return 'picked';
-  if (s && norm(cfg.onec_status_picking) && s === norm(cfg.onec_status_picking)) return 'picking';
-
-  // Fallback by progress
-  if (isOrderDone(order)) return 'picked';
-  if (Number(order.collected_qty || 0) > EPS) return 'picking';
+  const column = order.column;
+  if (column === 'picked' || column === 'picking' || column === 'not_started') return column;
   return 'not_started';
 }
 

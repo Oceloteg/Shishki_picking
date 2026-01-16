@@ -167,7 +167,8 @@ body{
   color: var(--muted);
   font-weight: 700;
 }
-.column-body{
+.column-body,
+.column-list{
   padding: 10px;
   overflow-y: auto;
   -webkit-overflow-scrolling: touch;
@@ -177,7 +178,8 @@ body{
 }
 
 /* Order card */
-.order-card{
+.order-card,
+.card{
   background: var(--card);
   border: 1px solid var(--border);
   border-radius: 14px;
@@ -187,19 +189,64 @@ body{
   touch-action: manipulation;
   user-select: none;
 }
-.order-card:active{ transform: translateY(1px); }
-.order-card-title{
+.order-card:hover,
+.card:hover{
+  box-shadow: 0 4px 12px rgba(15,23,42,0.08);
+}
+.order-card:active,
+.card:active{ transform: translateY(1px); }
+.order-card-title,
+.card-title{
   font-size: 16px;
   font-weight: 800;
   margin-bottom: 4px;
 }
-.order-card-sub{
+.order-card-sub,
+.card-sub{
   font-size: 13px;
   color: var(--muted);
   display: flex;
   flex-wrap: wrap;
   gap: 6px 10px;
   margin-bottom: 8px;
+}
+.card-meta{
+  font-size: 12px;
+  color: var(--muted);
+  margin-bottom: 8px;
+}
+.progress-row{
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  margin-bottom: 8px;
+}
+.progress-text{
+  font-size: 13px;
+  font-weight: 700;
+}
+.progress-bar{
+  height: 6px;
+  background: #e5e7eb;
+  border-radius: 999px;
+  overflow: hidden;
+}
+.progress-fill{
+  height: 100%;
+  background: #111827;
+  border-radius: 999px;
+}
+.lines-preview{
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+.line-preview-row{
+  font-size: 12px;
+  color: var(--muted);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 .order-badge{
   display: inline-flex;
