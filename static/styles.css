@@ -295,7 +295,8 @@ body{
 /* Urgency outline on card */
 .order-card--overdue{ border-color: #fca5a5; box-shadow: 0 0 0 2px rgba(220,38,38,0.12); }
 .order-card--due-soon{ border-color: #fdba74; box-shadow: 0 0 0 2px rgba(245,158,11,0.12); }
-.order-card--stale{ border-color: #a5b4fc; box-shadow: 0 0 0 2px rgba(99,102,241,0.12); }
+.order-card--stale-warn{ border-color: #a5b4fc; box-shadow: 0 0 0 2px rgba(99,102,241,0.12); }
+.order-card--stale-danger{ border-color: #818cf8; box-shadow: 0 0 0 2px rgba(99,102,241,0.24); }
 
 /* Order full-screen view */
 .order-view{

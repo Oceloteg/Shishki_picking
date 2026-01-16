@@ -2,6 +2,13 @@
 
 const EPS = 1e-9;
 const POLL_INTERVAL_MS = 30_000;
+const HOLD_UNLOCK_MS = 550;
+const ORDER_URGENCY_CLASSES = [
+  'order-card--overdue',
+  'order-card--due-soon',
+  'order-card--stale-warn',
+  'order-card--stale-danger',
+];
 
 const state = {
   config: null,
@@ -213,7 +220,7 @@ async function patchLine(orderId, lineId, qty) {
       } catch (_) {
         // ignore
       }
-    }, 700);
+    }, 3000);
   }
 
   return data;
@@ -273,6 +280,20 @@ function getOrderColumn(order) {
   return 'not_started';
 }
 
+function applyOrderUrgencyClass(card, urgency) {
+  if (!card) return;
+  card.classList.remove(...ORDER_URGENCY_CLASSES);
+  if (urgency === 'overdue') {
+    card.classList.add('order-card--overdue');
+  } else if (urgency === 'due_soon') {
+    card.classList.add('order-card--due-soon');
+  } else if (urgency === 'stale_danger') {
+    card.classList.add('order-card--stale-danger');
+  } else if (urgency === 'stale_warn' || urgency === 'stale') {
+    card.classList.add('order-card--stale-warn');
+  }
+}
+
 function renderBoard() {
   boardEl.innerHTML = '';
 
@@ -322,6 +343,7 @@ function renderOrderCard(w) {
   const card = document.createElement('div');
   card.className = 'card';
   card.dataset.orderId = o.id;
+  applyOrderUrgencyClass(card, o.urgency);
 
   const title = document.createElement('div');
   title.className = 'card-title';
@@ -384,6 +406,8 @@ function renderOrderCard(w) {
 function updateOrderCardOnBoard(order) {
   const card = document.querySelector(`.card[data-order-id="${order.id}"]`);
   if (!card) return;
+
+  applyOrderUrgencyClass(card, order.urgency);
 
   // Update progress text and bar
   const progressText = card.querySelector('.progress-text');
@@ -651,6 +675,10 @@ function renderLine(line) {
     el.appendChild(controls);
   }
 
+  if (!line.is_removed) {
+    bindUnlockHandlers(el, line.id);
+  }
+
   return el;
 }
 
@@ -666,10 +694,57 @@ function computeDelta(line) {
   return cur - base;
 }
 
+function getLineFromState(lineId) {
+  if (!state.orderDetail) return null;
+  return state.orderDetail.lines.find((x) => x.id === lineId) || null;
+}
+
 function getLineQtyFromState(lineId) {
-  if (!state.orderDetail) return 0;
-  const l = state.orderDetail.lines.find((x) => x.id === lineId);
+  const l = getLineFromState(lineId);
   return l ? Number(l.qty_collected || 0) : 0;
+}
+
+function toggleLineUnlock(lineEl, lineId) {
+  const line = getLineFromState(lineId);
+  if (!line || line.is_removed || !isLineDone(line)) return;
+  lineEl.classList.toggle('line--unlocked');
+}
+
+function bindUnlockHandlers(lineEl, lineId) {
+  let holdTimer = null;
+
+  const shouldIgnore = (ev) => {
+    if (!ev || !ev.target) return false;
+    return Boolean(ev.target.closest('.line-controls'));
+  };
+
+  const startHold = (ev) => {
+    if (shouldIgnore(ev)) return;
+    if (holdTimer) clearTimeout(holdTimer);
+    holdTimer = setTimeout(() => {
+      toggleLineUnlock(lineEl, lineId);
+    }, HOLD_UNLOCK_MS);
+  };
+
+  const cancelHold = () => {
+    if (holdTimer) {
+      clearTimeout(holdTimer);
+      holdTimer = null;
+    }
+  };
+
+  lineEl.addEventListener('pointerdown', (ev) => {
+    if (ev.pointerType === 'mouse' && ev.button !== 0) return;
+    startHold(ev);
+  });
+  lineEl.addEventListener('pointerup', cancelHold);
+  lineEl.addEventListener('pointerleave', cancelHold);
+  lineEl.addEventListener('pointercancel', cancelHold);
+
+  lineEl.addEventListener('dblclick', (ev) => {
+    if (shouldIgnore(ev)) return;
+    toggleLineUnlock(lineEl, lineId);
+  });
 }
 
 function updateLineUI(line) {
@@ -694,6 +769,9 @@ function updateLineUI(line) {
   el.classList.toggle('line--removed', !!line.is_removed);
   el.classList.toggle('line--done', nowDone && !line.is_removed);
   el.classList.toggle('line--added', !!line.is_added && !nowDone && !line.is_removed);
+  if (!nowDone || line.is_removed) {
+    el.classList.remove('line--unlocked');
+  }
 
   const delta = computeDelta(line);
   const qtyChanged = delta !== null;

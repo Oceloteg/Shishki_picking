@@ -46,6 +46,13 @@ def _fmt_qty(value: float | int | None) -> str:
         return str(int(round(n)))
     return f"{n:.3f}".rstrip("0").rstrip(".")
 
+def _pick_status_code(code: int | None) -> int | None:
+    if not settings.onec_sync_pick_state:
+        return None
+    if not settings.onec_order_pick_state_field:
+        return None
+    return code
+
 STATIC_DIR = Path(__file__).resolve().parent.parent / "static"
 
 
@@ -127,8 +134,8 @@ def favicon():
 @app.get("/api/config", response_model=ConfigOut)
 def get_config(_: str = Depends(get_current_user)):
     return ConfigOut(
-        due_soon_hours=settings.due_soon_hours,
-        stale_hours=settings.stale_hours,
+        stale_warn_days=settings.stale_warn_days,
+        stale_danger_days=settings.stale_danger_days,
         status_picking=settings.onec_status_picking,
         status_picked=settings.onec_status_picked,
         status_in_work=settings.onec_status_in_work,
@@ -195,6 +202,7 @@ def list_orders(
         {"order": to_order_out(o).model_dump(), "lines": [
             {"id": l.id, "item_id": l.item_id, "item_name": l.item_name, "unit": l.unit, "qty_ordered": l.qty_ordered, "qty_collected": l.qty_collected}
             for l in o.lines
+            if not l.is_removed
         ]}
         for o in orders
     ]
@@ -236,7 +244,12 @@ def open_order(
         order.onec_status = settings.onec_status_picking
         db.commit()
         try:
-            enqueue_set_status(db, order.onec_id, settings.onec_status_picking)
+            enqueue_set_status(
+                db,
+                order.onec_id,
+                settings.onec_status_picking,
+                pick_status_code=_pick_status_code(settings.onec_pick_state_picking),
+            )
         except Exception:
             logger.exception("enqueue_set_status failed (open_order) order_id=%s onec_id=%s", order_id, order.onec_id)
 
@@ -272,7 +285,12 @@ def patch_line(
         order.onec_status = settings.onec_status_picking
         db.commit()
         try:
-            enqueue_set_status(db, order.onec_id, settings.onec_status_picking)
+            enqueue_set_status(
+                db,
+                order.onec_id,
+                settings.onec_status_picking,
+                pick_status_code=_pick_status_code(settings.onec_pick_state_picking),
+            )
         except Exception:
             logger.exception("enqueue_set_status failed (patch_line->ensure_picking) order_id=%s line_id=%s onec_id=%s", order_id, line_id, order.onec_id)
 
@@ -305,7 +323,12 @@ def patch_line(
             order.onec_status = settings.onec_status_picked
             db.commit()
             try:
-                enqueue_set_status(db, order.onec_id, settings.onec_status_picked)
+                enqueue_set_status(
+                    db,
+                    order.onec_id,
+                    settings.onec_status_picked,
+                    pick_status_code=_pick_status_code(settings.onec_pick_state_picked),
+                )
             except Exception:
                 logger.exception("enqueue_set_status failed (complete_order) order_id=%s onec_id=%s", order_id, order.onec_id)
 
@@ -359,7 +382,12 @@ def complete_order(
 
     if order.onec_id:
         try:
-            enqueue_set_status(db, order.onec_id, settings.onec_status_picked)
+            enqueue_set_status(
+                db,
+                order.onec_id,
+                settings.onec_status_picked,
+                pick_status_code=_pick_status_code(settings.onec_pick_state_picked),
+            )
         except Exception:
             logger.exception("enqueue_set_status failed (complete_order) order_id=%s onec_id=%s", order_id, order.onec_id)
         if comment_append:
