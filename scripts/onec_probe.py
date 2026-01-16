@@ -19,6 +19,7 @@ import json
 import os
 from pathlib import Path
 from typing import Any
+import xml.etree.ElementTree as ET
 
 import httpx
 import uuid
@@ -78,6 +79,38 @@ def _print_exc(prefix: str, e: BaseException) -> None:
     _p(f"{prefix}{type(e).__name__}: {e!r}")
 
 
+def _local(tag: str) -> str:
+    return tag.split("}", 1)[-1] if "}" in tag else tag
+
+
+def _find_metadata_entity_type(metadata_xml: str, entity_set: str) -> str | None:
+    try:
+        root = ET.fromstring(metadata_xml)
+    except Exception:
+        return None
+
+    for elem in root.iter():
+        if _local(elem.tag) == "EntitySet" and elem.get("Name") == entity_set:
+            entity_type = elem.get("EntityType")
+            if entity_type:
+                return entity_type.split(".")[-1]
+    return None
+
+
+def _metadata_has_property(metadata_xml: str, entity_type: str, prop_name: str) -> bool:
+    try:
+        root = ET.fromstring(metadata_xml)
+    except Exception:
+        return False
+
+    for elem in root.iter():
+        if _local(elem.tag) == "EntityType" and elem.get("Name") == entity_type:
+            for p in elem:
+                if _local(p.tag) == "Property" and p.get("Name") == prop_name:
+                    return True
+    return False
+
+
 async def _get_json(client: httpx.AsyncClient, url: str, *, params: dict[str, str] | None = None) -> Any:
     # NOTE: do not start url with '/' when AsyncClient has base_url
     try:
@@ -128,6 +161,8 @@ async def main() -> int:
     out_dir.mkdir(parents=True, exist_ok=True)
 
     timeout = httpx.Timeout(float(settings.onec_timeout_seconds))
+    metadata_xml: str | None = None
+
     async with httpx.AsyncClient(
         base_url=base,
         auth=(settings.onec_username, settings.onec_password),
@@ -146,6 +181,10 @@ async def main() -> int:
             _p(f"GET {r.request.url} -> {r.status_code} ({ct})")
             r.raise_for_status()
             (out_dir / "metadata.xml").write_bytes(r.content)
+            try:
+                metadata_xml = r.text
+            except Exception:
+                metadata_xml = None
             _p("OK: $metadata -> onec_probe_out/metadata.xml")
         except Exception as e:
             _print_exc("WARN: не удалось скачать $metadata: ", e)
@@ -323,6 +362,10 @@ async def main() -> int:
             line_data = None
 
         line_obj = None
+        item_field = None
+        qty_field = None
+        progress_field = None
+        unit_field = None
         if line_data is not None:
             items = _extract_items(line_data)
             if items:
@@ -351,6 +394,15 @@ async def main() -> int:
             _p(f"ONEC_LINE_QTY_FIELD={qty_field or '(не найдено)'}")
             _p(f"ONEC_LINE_PROGRESS_FIELD={progress_field or '(не найдено)'}")
             _p(f"ONEC_LINE_UNIT_FIELD={unit_field or '(не найдено)'}")
+
+            if metadata_xml and progress_field:
+                et_name = _find_metadata_entity_type(metadata_xml, settings.onec_entity_order_lines)
+                if et_name:
+                    has_prop = _metadata_has_property(metadata_xml, et_name, progress_field)
+                    flag = "OK" if has_prop else "НЕ НАЙДЕНО"
+                    _p(f"metadata: {et_name}.{progress_field} -> {flag}")
+                else:
+                    _p("metadata: не удалось определить EntityType для табличной части.")
 
             # 4b) Try to resolve one item GUID -> Description (helps to verify access to Catalog_Номенклатура)
             try:
@@ -495,6 +547,79 @@ async def main() -> int:
                         await aclose()
             except Exception as e:
                 _print_exc("ERROR: тест записи статуса не прошёл: ", e)
+            _p("\n--- ПРОБА ЗАПИСИ: изменить собранное количество строки ---")
+            try:
+                from app.onec.client import ODataOneCClient
+
+                onec_write = ODataOneCClient()
+                try:
+                    if not isinstance(line_obj, dict):
+                        _p("Нет строки для теста собранного количества; пропуск.")
+                    elif not progress_field:
+                        _p("Не найдено поле 'КоличествоСобрано' (ONEC_LINE_PROGRESS_FIELD); пропуск.")
+                    else:
+                        line_no_raw = line_obj.get("LineNumber")
+                        try:
+                            line_no = int(str(line_no_raw))
+                        except Exception:
+                            line_no = None
+
+                        if line_no is None:
+                            _p("Не удалось определить LineNumber строки; пропуск.")
+                        else:
+                            ordered = None
+                            if qty_field and line_obj.get(qty_field) is not None:
+                                try:
+                                    ordered = float(line_obj.get(qty_field))
+                                except Exception:
+                                    ordered = None
+
+                            orig = 0.0
+                            if line_obj.get(progress_field) is not None:
+                                try:
+                                    orig = float(line_obj.get(progress_field))
+                                except Exception:
+                                    orig = 0.0
+
+                            delta = 1.0
+                            if ordered is not None and ordered < 1:
+                                delta = 0.1
+
+                            target = orig + delta
+                            if ordered is not None and ordered > 0:
+                                if target > ordered + 1e-6:
+                                    target = max(0.0, ordered - delta)
+
+                            _p(f"Исходное собранное: {orig} -> ставим {target}")
+                            await onec_write.write_line_progress(order_id, str(line_no), "", target)
+
+                            line_url = f"{settings.onec_entity_order_lines}(Ref_Key={_guid_literal(order_id)},LineNumber={line_no})"
+                            payload = await _get_json(
+                                client,
+                                line_url,
+                                params={"$format": "json", "$select": progress_field},
+                            )
+                            obj = _extract_single(payload) or {}
+                            got = obj.get(progress_field)
+                            _p(f"Проверка чтением: {progress_field}={got}")
+
+                            _p(f"Возвращаем обратно: {orig}")
+                            await onec_write.write_line_progress(order_id, str(line_no), "", orig)
+                            payload_back = await _get_json(
+                                client,
+                                line_url,
+                                params={"$format": "json", "$select": progress_field},
+                            )
+                            obj_back = _extract_single(payload_back) or {}
+                            got_back = obj_back.get(progress_field)
+                            _p(f"Проверка чтением: {progress_field}={got_back}")
+                            _p("OK: собранное количество возвращено.")
+                finally:
+                    aclose = getattr(onec_write, "aclose", None)
+                    if callable(aclose):
+                        await aclose()
+            except Exception as e:
+                _print_exc("ERROR: тест записи собранного количества не прошёл: ", e)
         else:
             _p("\n--- ПРОБА ЗАПИСИ: отключена ---")
             _p("Чтобы протестировать запись статуса (и вернуть обратно), запустите:")

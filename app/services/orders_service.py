@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 from datetime import date, datetime, timezone
-from math import ceil
 from typing import Iterable
 
 from app.config import settings
@@ -106,7 +105,7 @@ def determine_urgency(order: Order) -> tuple[str | None, str | None]:
         days_to = (ddl_day - today).days
         if days_to < 0:
             # overdue
-            return "overdue", f"Дедлайн просрочен на {abs(days_to)}д"
+            return "overdue", "дедлайн просрочен"
         if days_to == 0:
             return "due_soon", "дедлайн сегодня"
         if days_to == 1:
@@ -116,9 +115,12 @@ def determine_urgency(order: Order) -> tuple[str | None, str | None]:
     col = determine_column(order)
     if col != "picked" and created_at:
         age_days = int((now - created_at).total_seconds() // 86400)
-        threshold_days = max(1, ceil(settings.stale_hours / 24))
-        if age_days >= threshold_days:
-            return "stale", f"Висит {age_days}д"
+        warn_days = max(1, int(settings.stale_warn_days))
+        danger_days = max(warn_days, int(settings.stale_danger_days))
+        if age_days >= danger_days:
+            return "stale_danger", f"Висит {age_days}д"
+        if age_days >= warn_days:
+            return "stale_warn", f"Висит {age_days}д"
 
     return None, None
 

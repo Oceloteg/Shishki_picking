@@ -50,7 +50,7 @@ class OrderOut(BaseModel):
     column: str  # not_started|picking|picked
 
     # For UI hints
-    urgency: str | None = None  # overdue|due_soon|stale|None
+    urgency: str | None = None  # overdue|due_soon|stale_warn|stale_danger|None
     urgency_text: str | None = None
 
 
@@ -70,8 +70,8 @@ class PatchLineResponse(BaseModel):
 
 
 class ConfigOut(BaseModel):
-    due_soon_hours: int
-    stale_hours: int
+    stale_warn_days: int
+    stale_danger_days: int
     status_picking: str
     status_picked: str
     status_in_work: str

@@ -66,8 +66,11 @@ class Settings(BaseSettings):
     onec_order_comment_field: str = Field(default="Комментарий", alias="ONEC_ORDER_COMMENT_FIELD")
 
     # Optional: order picking state field/code ("Сборка заказов покупателей")
-    # Set ONEC_ORDER_PICK_STATE_FIELD empty to disable.
-    onec_order_pick_state_field: str = Field(default="СтатусСборки", alias="ONEC_ORDER_PICK_STATE_FIELD")
+    # Set ONEC_ORDER_PICKING_STATE_FIELD empty to disable.
+    onec_order_pick_state_field: str = Field(
+        default="СтатусСборки", alias="ONEC_ORDER_PICKING_STATE_FIELD"
+    )
+    onec_sync_pick_state: bool = Field(default=False, alias="ONEC_SYNC_PICKING_STATE")
     onec_pick_state_not_started: int = Field(default=0, alias="ONEC_PICK_STATE_NOT_STARTED")
     onec_pick_state_picking: int = Field(default=1, alias="ONEC_PICK_STATE_PICKING")
     onec_pick_state_picked: int = Field(default=2, alias="ONEC_PICK_STATE_PICKED")
@@ -91,8 +94,8 @@ class Settings(BaseSettings):
     )
 
     # ==== UI thresholds ====
-    due_soon_hours: int = Field(default=24, alias="DUE_SOON_HOURS")
-    stale_hours: int = Field(default=48, alias="STALE_HOURS")
+    stale_warn_days: int = Field(default=3, alias="STALE_WARN_DAYS")
+    stale_danger_days: int = Field(default=7, alias="STALE_DANGER_DAYS")
 
     model_config = SettingsConfigDict(env_file=".env", extra="ignore", case_sensitive=False)
 

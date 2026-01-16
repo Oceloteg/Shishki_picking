@@ -43,7 +43,9 @@ class OneCClientBase:
     async def fetch_active_orders(self) -> list[OneCOrder]:
         raise NotImplementedError
 
-    async def set_order_status(self, onec_id: str, status: str) -> None:
+    async def set_order_status(
+        self, onec_id: str, status: str, pick_status_code: int | None = None
+    ) -> None:
         raise NotImplementedError
 
     async def set_order_comment(self, onec_id: str, comment: str) -> None:
@@ -109,7 +111,9 @@ class MockOneCClient(OneCClientBase):
             filtered.append(o)
         return filtered
 
-    async def set_order_status(self, onec_id: str, status: str) -> None:
+    async def set_order_status(
+        self, onec_id: str, status: str, pick_status_code: int | None = None
+    ) -> None:
         # mock: no-op
         return None
 
@@ -1004,7 +1008,9 @@ class ODataOneCClient(OneCClientBase):
 
         return lines
 
-    async def set_order_status(self, onec_id: str, status: str) -> None:
+    async def set_order_status(
+        self, onec_id: str, status: str, pick_status_code: int | None = None
+    ) -> None:
         fg = await self._ensure_field_guess()
         status_field = fg.status_field
         if not status_field:
@@ -1038,6 +1044,9 @@ class ODataOneCClient(OneCClientBase):
                 body[fg.status_type_field] = fg.status_type_value
         else:
             body = {status_field: status}
+
+        if pick_status_code is not None and settings.onec_order_pick_state_field:
+            body[settings.onec_order_pick_state_field] = int(pick_status_code)
 
         # OData v2/v3: MERGE is common; 1C часто принимает PATCH.
         try:
@@ -1129,6 +1138,38 @@ class ODataOneCClient(OneCClientBase):
         except httpx.HTTPStatusError as e:
             self._log(f"PATCH line progress failed, trying MERGE. err={e}")
             await self._request_json("MERGE", url, json_body=body, headers=headers, params={"$format": "json"})
+
+        if settings.onec_confirm_updates:
+            async def _read_back_progress() -> float | None:
+                try:
+                    payload = await self._request_json(
+                        "GET",
+                        url,
+                        params={"$format": "json", "$select": progress_field},
+                    )
+                except Exception:
+                    payload = await self._request_json("GET", url, params={"$format": "json"})
+                obj = self._extract_single(payload) or {}
+                v = obj.get(progress_field)
+                try:
+                    return float(v)
+                except Exception:
+                    return None
+
+            expected = float(qty_collected)
+            got: float | None = None
+            for _ in range(3):
+                got = await _read_back_progress()
+                if got is not None and abs(got - expected) <= 1e-6:
+                    return None
+                await asyncio.sleep(0.4)
+
+            raise RuntimeError(
+                "КоличествоСобрано не подтвердилось после записи через OData. "
+                f"expected={expected!r} got={got!r} field={progress_field} "
+                f"order={onec_order_id} line={line_no}. "
+                "Проверьте, что поле опубликовано и доступно на запись в 1С."
+            )
 
     async def set_order_comment(self, onec_id: str, comment: str) -> None:
         fg = await self._ensure_field_guess()
