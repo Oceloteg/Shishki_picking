@@ -23,6 +23,7 @@ from app.schemas import (
     PatchLineRequest,
     PatchLineResponse,
 )
+from app.migrations import ensure_schema
 from app.services.orders_service import calc_progress, to_order_out
 from app.services.sync_service import (
     enqueue_line_progress,
@@ -45,6 +46,9 @@ STATIC_DIR = Path(__file__).resolve().parent.parent / "static"
 async def lifespan(app: FastAPI):
     # Create DB tables
     Base.metadata.create_all(bind=engine)
+    changes = ensure_schema(engine)
+    if changes:
+        logger.info("db schema ensured: %s", changes)
 
     # Log effective configuration (without secrets)
     try:
@@ -162,13 +166,16 @@ def logout(response: Response):
 def list_orders(
     _: str = Depends(get_current_user),
     db: Session = Depends(get_db),
+    limit: int = 200,
 ):
+    limit = max(1, min(limit, 500))
     orders = (
         db.execute(
             select(Order)
             .where(Order.is_active == True)
             .options(selectinload(Order.lines))
             .order_by(Order.id.desc())
+            .limit(limit)
         )
         .scalars()
         .all()

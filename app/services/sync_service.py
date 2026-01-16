@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import asyncio
 import json
+import logging
 from datetime import datetime, timedelta, timezone
 from typing import Any, Iterable
 
@@ -13,6 +14,9 @@ from app.models import Order, OrderLine, SyncQueue
 from app.onec.client import OneCClientBase, OneCOrder, build_onec_client
 
 EPS = 1e-9
+LOG_THROTTLE_SECONDS = 60
+
+logger = logging.getLogger("shishki.sync")
 
 
 def _utcnow() -> datetime:
@@ -246,14 +250,21 @@ async def process_sync_queue(db: Session, limit: int = 25) -> dict[str, Any]:
 
 async def sync_loop(stop_event: asyncio.Event, session_factory) -> None:
     """Background loop: sync orders + process outbox."""
+    last_log_at: datetime | None = None
+    suppressed = 0
     while not stop_event.is_set():
         try:
             with session_factory() as db:
                 await sync_orders_from_onec(db)
                 await process_sync_queue(db)
         except Exception:
-            # In MVP we keep it silent to avoid crashing the server.
-            pass
+            now = _utcnow()
+            if last_log_at is None or (now - last_log_at).total_seconds() >= LOG_THROTTLE_SECONDS:
+                logger.exception("sync_loop error (suppressed=%s)", suppressed)
+                last_log_at = now
+                suppressed = 0
+            else:
+                suppressed += 1
 
         try:
             await asyncio.wait_for(stop_event.wait(), timeout=settings.sync_interval_seconds)

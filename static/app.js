@@ -4,7 +4,6 @@ const EPS = 1e-9;
 const POLL_INTERVAL_MS = 30_000;
 
 const state = {
-  token: null,
   config: null,
   orders: [], // array of {order, lines}
   orderDetail: null, // {order, lines}
@@ -117,7 +116,6 @@ function isOrderDone(order) {
 // ==== API ====
 async function apiFetch(path, options = {}) {
   const headers = new Headers(options.headers || {});
-  if (state.token) headers.set('Authorization', `Bearer ${state.token}`);
   const opts = { ...options, headers };
   const res = await fetch(path, opts);
   if (res.status === 401) {
@@ -145,8 +143,7 @@ async function login(password) {
     throw new Error(txt || 'Login failed');
   }
 
-  const data = await res.json();
-  state.token = data.token;
+  await res.json();
 }
 
 async function syncNow() {
@@ -207,7 +204,7 @@ async function patchLine(lineId, qty) {
   updateOrderCardOnBoard(data.order);
   updateLineUI(data.line);
 
-  if (data.order_done) {
+  if (data.order_completed_now) {
     showComplete();
     // Close order view shortly after
     setTimeout(async () => {
@@ -676,7 +673,6 @@ function escapeHtml(str) {
 
 // ==== auth / lifecycle ====
 function logout() {
-  state.token = null;
   state.config = null;
   state.orders = [];
   state.orderDetail = null;
@@ -706,7 +702,7 @@ async function bootApp() {
       .then(loadOrders)
       .catch(() => {});
   } catch (e) {
-    // If config failed (token invalid), force logout
+    // If config failed (auth invalid), force logout
     logout();
   }
 }

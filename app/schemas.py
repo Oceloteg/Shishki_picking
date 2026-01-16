@@ -18,10 +18,13 @@ class OrderLineOut(BaseModel):
     unit: str | None = None
     qty_ordered: float
     qty_collected: float
+    qty_collected_remote: float | None = None
+    sort_index: int = 0
     # Diff/highlight helpers (screen 2)
     baseline_qty_ordered: float | None = None
     is_added: bool = False
     is_removed: bool = False
+    last_seen_at: datetime | None = None
 
 
 class OrderOut(BaseModel):

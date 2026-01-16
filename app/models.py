@@ -45,10 +45,12 @@ class Order(Base):
     comment: Mapped[str | None] = mapped_column(Text, nullable=True)
 
     onec_status: Mapped[str | None] = mapped_column(String(64), nullable=True)
+    onec_pick_status_code: Mapped[int | None] = mapped_column(Integer, nullable=True)
     is_posted: Mapped[bool] = mapped_column(Boolean, default=False)
 
     is_active: Mapped[bool] = mapped_column(Boolean, default=True, index=True)
 
+    baseline_captured_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     last_synced_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow, onupdate=utcnow)
 
@@ -79,6 +81,13 @@ class OrderLine(Base):
 
     qty_ordered: Mapped[float] = mapped_column(Float, default=0)
     qty_collected: Mapped[float] = mapped_column(Float, default=0)
+    qty_collected_remote: Mapped[float | None] = mapped_column(Float, nullable=True)
+
+    sort_index: Mapped[int] = mapped_column(Integer, default=0)
+    baseline_qty_ordered: Mapped[float | None] = mapped_column(Float, nullable=True)
+    is_added: Mapped[bool] = mapped_column(Boolean, default=False)
+    is_removed: Mapped[bool] = mapped_column(Boolean, default=False)
+    last_seen_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
 
     order: Mapped["Order"] = relationship(back_populates="lines")
 
